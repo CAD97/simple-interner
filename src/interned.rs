@@ -9,7 +9,7 @@ use std::ptr;
 ///
 /// In all other cases, this should act as if it were a reference to the wrapped type.
 /// If you just want to get the wrapped reference out, see `Interned::get`.
-#[derive(Copy, Clone, Debug, Ord, PartialOrd, Eq, Hash)]
+#[derive(Debug, Ord, PartialOrd, Hash)]
 pub struct Interned<'a, T: 'a + ?Sized>(pub(crate) &'a T);
 
 impl<'a, T: 'a + ?Sized> Interned<'a, T> {
@@ -22,6 +22,14 @@ impl<'a, T: 'a + ?Sized> Interned<'a, T> {
     }
 }
 
+impl<'a, T: 'a + ?Sized> Copy for Interned<'a, T> {}
+impl<'a, T: 'a + ?Sized> Clone for Interned<'a, T> {
+    fn clone(&self) -> Self {
+        *self
+    }
+}
+
+impl<'a, T: 'a + ?Sized> Eq for Interned<'a, T> {}
 impl<'a, T: 'a + ?Sized> PartialEq for Interned<'a, T> {
     fn eq(&self, other: &Self) -> bool {
         ptr::eq(self.0, other.0)

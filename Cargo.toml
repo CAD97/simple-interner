@@ -1,6 +1,6 @@
 [package]
 name = "simple-interner"
-version = "0.1.0"
+version = "0.2.0"
 authors = ["Christopher Durham (CAD97) <cad97@cad97.com>"]
 
 description = "A simple append-only interner"
