@@ -6,7 +6,7 @@ authors = ["Christopher Durham (CAD97) <cad97@cad97.com>"]
 description = "A simple append-only interner"
 repository = "https://github.com/CAD97/simple-interner"
 readme = "Readme.md"
-keywords = ["string interner", "interner", "cache"]
+keywords = ["symbol", "string", "interner", "intern", "cache"]
 categories = ["caching", "parsing"]
 license = "Apache-2.0 OR MIT"
 
