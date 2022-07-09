@@ -1,35 +1,114 @@
-use Interned;
+use {
+    crate::Interned,
+    std::{
+        borrow::Borrow,
+        collections::hash_map::RandomState,
+        fmt,
+        hash::{BuildHasher, Hash, Hasher},
+        ops::Deref,
+        ptr::NonNull,
+    },
+};
 
-use std::collections::HashSet;
-use std::collections::hash_map::RandomState;
-use std::hash::{BuildHasher, Hash};
-use std::mem;
+#[cfg(feature = "raw")]
+use hashbrown::hash_map::RawEntryMut;
+#[cfg(feature = "hashbrown")]
+use hashbrown::hash_map::{Entry, HashMap};
+#[cfg(not(feature = "hashbrown"))]
+use std::collections::hash_map::{Entry, HashMap};
 
-#[cfg(feature = "parking_lot")]
-use parking_lot::RwLock;
 #[cfg(not(feature = "parking_lot"))]
 use std::sync::RwLock;
+#[cfg(feature = "parking_lot")]
+use {crate::parking_lot_shim::*, parking_lot::RwLock};
 
-use parking_lot_shim::*;
+/// A wrapper around box that does not provide &mut access to the pointee and
+/// uses raw-pointer borrowing rules to avoid invalidating extant references.
+///
+/// The resolved reference is guaranteed valid until the PinBox is dropped.
+struct PinBox<T: ?Sized>(NonNull<T>);
 
-// The `Interner` loans out references with the same lifetime as its own borrow.
-// This guarantees that the loan cannot outlive the interner.
-// Because we only ever add to our arena `HashSet`, and do not give mutable references
-// to our boxes, the location of our interned items is stable, and this is sound.
-// We're treating `Box` as if it were `PinBox` here, so we need to avoid
-// using the fn which `PinBox` makes unsafe manually to maintain safety.
+impl<T: ?Sized> PinBox<T> {
+    fn new(x: Box<T>) -> Self {
+        PinBox(NonNull::new(Box::into_raw(x)).unwrap())
+    }
+
+    #[allow(unsafe_code)]
+    unsafe fn as_ref<'a>(&self) -> &'a T {
+        self.0.as_ref()
+    }
+}
+
+impl<T: ?Sized> Drop for PinBox<T> {
+    fn drop(&mut self) {
+        #[allow(unsafe_code)]
+        unsafe {
+            Box::from_raw(self.0.as_ptr())
+        };
+    }
+}
+
+impl<T: ?Sized> Deref for PinBox<T> {
+    type Target = T;
+    #[allow(unsafe_code)]
+    fn deref(&self) -> &T {
+        unsafe { self.as_ref() }
+    }
+}
+
+impl<T: ?Sized + fmt::Debug> fmt::Debug for PinBox<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        (**self).fmt(f)
+    }
+}
+
+impl<T: ?Sized + Eq> Eq for PinBox<T> {}
+impl<T: ?Sized + PartialEq> PartialEq for PinBox<T> {
+    fn eq(&self, other: &Self) -> bool {
+        (**self).eq(&**other)
+    }
+}
+impl<T: ?Sized + PartialEq> PartialEq<T> for PinBox<T> {
+    fn eq(&self, other: &T) -> bool {
+        (**self).eq(other)
+    }
+}
+
+impl<T: ?Sized + Ord> Ord for PinBox<T> {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        (**self).cmp(&**other)
+    }
+}
+impl<T: ?Sized + PartialOrd> PartialOrd for PinBox<T> {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        (**self).partial_cmp(&**other)
+    }
+}
+impl<T: ?Sized + PartialOrd> PartialOrd<T> for PinBox<T> {
+    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+        (**self).partial_cmp(other)
+    }
+}
+
+impl<T: ?Sized + Hash> Hash for PinBox<T> {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        (**self).hash(state)
+    }
+}
+
+impl<T: ?Sized> Borrow<T> for PinBox<T> {
+    fn borrow(&self) -> &T {
+        self
+    }
+}
 
 /// An interner based on a `HashSet`. See the crate-level docs for more.
 #[derive(Debug)]
-#[cfg_attr(feature = "serde", derive(Serialize, Deserialize))]
-pub struct Interner<T: Eq + Hash + ?Sized, H: BuildHasher = RandomState> {
-    #[cfg_attr(feature = "serde",
-               serde(bound(deserialize = "for<'a> HashSet<Box<T>, H>: ::serde::Deserialize<'a>")))]
-    arena: RwLock<HashSet<Box<T>, H>>,
+pub struct Interner<T: ?Sized, S = RandomState> {
+    arena: RwLock<HashMap<PinBox<T>, (), S>>,
 }
 
-// Cannot be derived with the BuildHasher generic
-impl<T: Eq + Hash + ?Sized> Default for Interner<T, RandomState> {
+impl<T: ?Sized, S: Default> Default for Interner<T, S> {
     fn default() -> Self {
         Interner {
             arena: RwLock::default(),
@@ -37,72 +116,125 @@ impl<T: Eq + Hash + ?Sized> Default for Interner<T, RandomState> {
     }
 }
 
-#[inline(always)]
-#[cfg_attr(feature = "cargo-clippy", allow(inline_always))]
-fn coerce<T>(t: T) -> T {
-    t
-}
-
 #[allow(unsafe_code)]
-/// The interner interface
-impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
-    /// Get an interned item out of this interner, or insert if it doesn't exist.
-    /// Takes borrowed or heap-allocated items. If the item has not been previously interned,
-    /// it will be `Into::into`ed a `Box` on the heap and cached. Notably, if you
-    /// give this fn a `String` or `Vec`, the allocation will shrink but not reallocate.
+impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
+    /// Intern an item into the interner.
     ///
-    /// Note that the interner may need to reallocate to make space for the new reference,
-    /// just the same as a `HashSet<T>` would. This cost is amortized to `O(1)` as it is
-    /// in other standard library collections.
+    /// Takes borrowed or heap-allocated items. If the item has not been
+    /// previously interned, it will be `Into::into`ed a `Box` on the heap and
+    /// cached. Notably, if you give this fn a `String` or `Vec`, the allocation
+    /// will be shrunk to fit.
     ///
-    /// If you have an owned item (especially if it has a cheap transformation to `Box`)
-    /// and no longer need the ownership, pass it in directly. Otherwise, just pass in a reference.
+    /// Note that the interner may need to reallocate to make space for the new
+    /// reference, just the same as a `HashSet` would. This cost is amortized to
+    /// `O(1)` as it is in other standard library collections.
+    ///
+    /// If you have an owned item (especially if it has a cheap transformation
+    /// to `Box`) and no longer need the ownership, pass it in directly.
+    /// Otherwise, pass in a reference.
     ///
     /// See `get` for more about the interned symbol.
-    pub fn get_or_insert<'a, R>(&'a self, t: R) -> Interned<'a, T>
+    pub fn intern<R>(&self, t: R) -> Interned<'_, T>
     where
-        R: AsRef<T> + Into<Box<T>>,
+        R: Borrow<T> + Into<Box<T>>,
     {
-        if let Some(interned_t) = self.get(t.as_ref()) {
-            return interned_t;
-        } else {
-            let arena = self.arena.upgradable_read();
-            // double read to catch add after first check but before acquiring the upgradable lock
-            // cannot reuse Self::get here as stdlib upgradable read lock is shimmed as a write lock
-            if let Some(interned_t) = arena.get(t.as_ref()) {
-                return Interned(unsafe { mem::transmute(coerce::<&T>(interned_t)) });
-            } // cannot else because `arena` would still be borrowed
-            let mut arena = arena.upgrade();
-            let boxed_t: Box<T> = t.into();
-            // Get the reference to loan out _after_ boxing up our data
-            let t_ref: &'a T = unsafe { mem::transmute(coerce::<&T>(&boxed_t)) };
-            arena.insert(boxed_t);
-            Interned(t_ref)
+        let borrowed = t.borrow();
+        if let Some(interned) = self.get(borrowed) {
+            return interned;
+        }
+
+        let mut arena = self
+            .arena
+            .write()
+            .expect("interner lock should not be poisoned");
+
+        // If someone interned the item between the above check and us acquiring
+        // the write lock, this heap allocation isn't necessary. However, this
+        // is expected to be rare, so we don't bother with doing another lookup
+        // before creating the box. Using the raw_entry API could avoid this,
+        // but needs a different call than intern_raw to use the intrinsic
+        // BuildHasher rather than an external one. It's not worth the effort.
+
+        let boxed = PinBox::new(t.into());
+        match arena.entry(boxed) {
+            Entry::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
+            Entry::Vacant(entry) => {
+                let interned = Interned(unsafe { entry.key().as_ref() });
+                entry.insert(());
+                interned
+            },
         }
     }
 
     /// Get an interned reference out of this interner.
     ///
-    /// The returned reference is bound to the lifetime of the borrow used for this method.
-    /// This guarantees that the returned reference will live no longer than this interner does.
-    pub fn get<'a>(&'a self, t: &T) -> Option<Interned<'a, T>> {
+    /// The returned reference is bound to the lifetime of the borrow used for
+    /// this method. This guarantees that the returned reference will live no
+    /// longer than this interner does.
+    pub fn get(&self, t: &T) -> Option<Interned<'_, T>> {
         self.arena
             .read()
-            .unwrap()
-            .get(t)
-            .map(|t: &Box<T>| unsafe { mem::transmute(coerce::<&T>(t)) })
+            .expect("interner lock should not be poisoned")
+            .get_key_value(t)
+            .map(|(t, _)| Interned(unsafe { t.as_ref() }))
     }
 }
 
-/// Constructors
-impl<T: Eq + Hash + ?Sized> Interner<T> {
+#[allow(unsafe_code)]
+#[cfg(feature = "raw")]
+impl<T: ?Sized, S: BuildHasher> Interner<T, S> {
+    /// Raw interning interface for any `T`.
+    pub fn intern_raw<Q>(
+        &self,
+        it: Q,
+        hash: u64,
+        mut is_match: impl FnMut(&Q, &T) -> bool,
+        do_hash: impl Fn(&T) -> u64,
+        commit: impl FnOnce(Q) -> Box<T>,
+    ) -> Interned<'_, T> {
+        if let Some(interned) = self.get_raw(hash, |t| is_match(&it, t)) {
+            return interned;
+        }
+
+        let mut arena = self
+            .arena
+            .write()
+            .expect("interner lock should not be poisoned");
+
+        match arena.raw_entry_mut().from_hash(hash, |t| is_match(&it, t)) {
+            RawEntryMut::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
+            RawEntryMut::Vacant(entry) => {
+                let boxed = PinBox::new(commit(it));
+                let interned = Interned(unsafe { boxed.as_ref() });
+                entry.insert_with_hasher(hash, boxed, (), |t| do_hash(t));
+                interned
+            },
+        }
+    }
+
+    /// Raw interned reference lookup.
+    pub fn get_raw(
+        &self,
+        hash: u64,
+        mut is_match: impl FnMut(&T) -> bool,
+    ) -> Option<Interned<'_, T>> {
+        self.arena
+            .read()
+            .expect("interner lock should not be poisoned")
+            .raw_entry()
+            .from_hash(hash, |t| is_match(t))
+            .map(|(t, _)| Interned(unsafe { t.as_ref() }))
+    }
+}
+
+impl<T: ?Sized> Interner<T> {
     /// Create an empty interner.
     ///
     /// The backing set is initially created with a capacity of 0,
     /// so it will not allocate until it is first inserted into.
     pub fn new() -> Self {
         Interner {
-            arena: RwLock::new(HashSet::new()),
+            arena: RwLock::new(HashMap::default()),
         }
     }
 
@@ -112,7 +244,10 @@ impl<T: Eq + Hash + ?Sized> Interner<T> {
     /// If `capacity` is 0, the interner will not initially allocate.
     pub fn with_capacity(capacity: usize) -> Self {
         Interner {
-            arena: RwLock::new(HashSet::with_capacity(capacity)),
+            arena: RwLock::new(HashMap::with_capacity_and_hasher(
+                capacity,
+                RandomState::default(),
+            )),
         }
     }
 }
@@ -124,7 +259,7 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
     /// The interner is also created with the default capacity.
     pub fn with_hasher(hasher: H) -> Self {
         Interner {
-            arena: RwLock::new(HashSet::with_hasher(hasher)),
+            arena: RwLock::new(HashMap::with_hasher(hasher)),
         }
     }
 
@@ -134,7 +269,7 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
     /// If `capacity` is 0, the interner will not initially allocate.
     pub fn with_capacity_and_hasher(capacity: usize, hasher: H) -> Self {
         Interner {
-            arena: RwLock::new(HashSet::with_capacity_and_hasher(capacity, hasher)),
+            arena: RwLock::new(HashMap::with_capacity_and_hasher(capacity, hasher)),
         }
     }
 }

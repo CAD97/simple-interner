@@ -1,40 +1,19 @@
-#[cfg(feature = "parking_lot")]
-use parking_lot::RwLockReadGuard;
-#[cfg(not(feature = "parking_lot"))]
-use std::sync::{RwLock, RwLockWriteGuard};
+//! Allows using parking_lot as if it poisoned like std does.
 
-#[cfg(not(feature = "parking_lot"))]
-pub(crate) trait RwLockUpgradableReadShim<T> {
-    fn upgradable_read(&self) -> RwLockWriteGuard<T>;
+use parking_lot::{RwLockReadGuard, RwLockWriteGuard};
+
+pub(crate) trait LockResult<T> {
+    fn expect(self, msg: &str) -> T;
 }
 
-#[cfg(not(feature = "parking_lot"))]
-impl<T> RwLockUpgradableReadShim<T> for RwLock<T> {
-    fn upgradable_read(&self) -> RwLockWriteGuard<T> {
-        self.write().unwrap()
-    }
-}
-
-#[cfg(not(feature = "parking_lot"))]
-pub(crate) trait RwLockGuardUpgradeShim<'a, T> {
-    fn upgrade(self) -> RwLockWriteGuard<'a, T>;
-}
-
-#[cfg(not(feature = "parking_lot"))]
-impl<'a, T> RwLockGuardUpgradeShim<'a, T> for RwLockWriteGuard<'a, T> {
-    fn upgrade(self) -> Self {
+impl<'a, T> LockResult<Self> for RwLockReadGuard<'a, T> {
+    fn expect(self, _msg: &str) -> Self {
         self
     }
 }
 
-#[cfg(feature = "parking_lot")]
-pub(crate) trait LockResult<T> {
-    fn unwrap(self) -> T;
-}
-
-#[cfg(feature = "parking_lot")]
-impl<'a, T> LockResult<Self> for RwLockReadGuard<'a, T> {
-    fn unwrap(self) -> Self {
+impl<'a, T> LockResult<Self> for RwLockWriteGuard<'a, T> {
+    fn expect(self, _msg: &str) -> Self {
         self
     }
 }

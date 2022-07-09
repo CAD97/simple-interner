@@ -1,32 +1,44 @@
-//! A very simplistic interner based around giving out (wrapped) references
-//! rather than some placeholder symbol. This means that e.g. strings can be interned in systems
-//! based around `&str` without rewriting to support a new `Symbol` type.
+//! A very simplistic interner based around giving out references rather than
+//! some placeholder symbol. This means that you can mostly transparently add
+//! interning into a system without requiring rewriting all of the code to work
+//! on a new `Symbol` type, asking the interener to concretize the symbols.
 //!
-//! The typical use case for something like this is text processing chunks, where chunks are very
-//! likely to be repeated. For example, when parsing source code, identifiers are likely to come up
-//! multiple times. Rather than have a `Token::Identifier(String)` and allocate every occurrence of
-//! those identifiers separately, interners allow you to store `Token::Identifier(Symbol)`, and
-//! compare identifier equality by the interned symbol.
+//! The typical use case for something like this is text processing chunks,
+//! where chunks are very likely to be repeated. For example, when parsing
+//! source code, identifiers are likely to come up multiple times. Rather than
+//! have a `String` allocated for every occurrence of the identifier separately,
+//! interners allow you to store `Symbol`. This additionally allows comparing
+//! symbols to be much quicker than comparing the full interned string.
 //!
-//! This crate exists to give the option of using a simplistic interface. If you want or need
-//! further power, there are multiple other options available on crates.io.
+//! This crate exists to give the option of using the simplest interface. For
+//! a more featureful interner, consider using a different crate, such as
+//!
+//! |             crate | non-global | `'static` opt | non-`str` |  symbol size  | symbols deref
+//! | ----------------: | :--------: | :-----------: | :-------: | :-----------: | :-----------:
+//! |   simple-interner |    yes     |      no       |    yes    |     `&T`      |      yes
+//! |        [intaglio] |    yes     |      yes      |    no     |     `u32`     |      no
+//! |      [internment] | optionally |      no       |    yes    |     `&T`      |      yes
+//! |           [lasso] |    yes     |      yes      |    no     | `u8`–`usize`  |      no
+//! | [string-interner] |    yes     |  optionally   |    no     | `u16`–`usize` |      no
+//! |    [string_cache] |    yes     |  buildscript  |    no     |     `u64`     |      yes
+//! |    [symbol_table] | optionally |      no       |    no     |     `u32`     |  global only
+//! |            [ustr] |    no      |      no       |    no     |    `usize`    |      yes
+//!
+//! (PRs to this table are welcome!) <!-- crate must have seen activity in the last year -->
+//!
+//! [intaglio]: https://lib.rs/crates/intaglio
+//! [lasso]: https://lib.rs/crates/lasso
+//! [internment]: https://lib.rs/crates/internment
+//! [string-interner]: https://lib.rs/crates/string-interner
+//! [string_cache]: https://lib.rs/crates/string-cache
+//! [symbol_table]: https://lib.rs/crates/symbol_table
+//! [ustr]: https://lib.rs/crates/ustr
 
-#![forbid(missing_debug_implementations, unconditional_recursion, future_incompatible)]
-#![deny(bad_style, unsafe_code, missing_docs)]
-
-#[macro_use]
-#[cfg(feature = "serde")]
-extern crate serde;
+#![forbid(unconditional_recursion, future_incompatible)]
+#![warn(unsafe_code, bad_style, missing_docs, missing_debug_implementations)]
 
 #[cfg(feature = "parking_lot")]
-extern crate parking_lot;
 mod parking_lot_shim;
-
-#[cfg(all(feature = "serde", feature = "parking_lot"))]
-compile_error!(
-    "At this time, parking_lot does not implement De/Serialize.\n\
-     As such, simple-interner cannot implement De/Serialize when using parking_lot."
-);
 
 mod interner;
 pub use interner::Interner;
@@ -39,19 +51,19 @@ mod tests {
     use super::*;
 
     #[test]
-    fn basic_usage() {
+    fn str_usage() {
         // Create the interner
-        let interner = Interner::default();
+        let interner = Interner::new();
 
         // Intern some strings
-        let a1 = interner.get_or_insert(Box::<str>::from("a"));
-        let b1 = interner.get_or_insert(String::from("b"));
-        let c1 = interner.get_or_insert("c");
+        let a1 = interner.intern(Box::<str>::from("a"));
+        let b1 = interner.intern(String::from("b"));
+        let c1 = interner.intern("c");
 
         // Get the interned strings
-        let a2 = interner.get_or_insert("a");
-        let b2 = interner.get_or_insert("b");
-        let c2 = interner.get_or_insert("c");
+        let a2 = interner.intern("a");
+        let b2 = interner.intern("b");
+        let c2 = interner.intern("c");
 
         let a3 = interner.get("a").unwrap();
         let b3 = interner.get("b").unwrap();
@@ -69,28 +81,33 @@ mod tests {
     #[test]
     fn slice_usage() {
         // Create the interner
-        let interner = Interner::default();
+        let interner = Interner::new();
 
         // Intern some strings
-        let a1 = interner.get_or_insert(Box::<[u8]>::from(&[0][..]));
-        let b1 = interner.get_or_insert(&[1][..]);
-        let c1 = interner.get_or_insert(&[2][..]);
+        let a1 = interner.intern(Box::<[u8]>::from([0]));
+        let b1 = interner.intern(Vec::from([1]));
+        let c1 = interner.intern::<[u8; 1]>([2]);
+        let d1 = interner.intern::<&[u8]>(&[3][..]);
 
         // Get the interned strings
-        let a2 = interner.get_or_insert(&[0][..]);
-        let b2 = interner.get_or_insert(&[1][..]);
-        let c2 = interner.get_or_insert(&[2][..]);
+        let a2 = interner.intern([0]);
+        let b2 = interner.intern([1]);
+        let c2 = interner.intern([2]);
+        let d2 = interner.intern([3]);
 
-        let a3 = interner.get(&[0]).unwrap();
+        let a3 = interner.get(&[0][..]).unwrap();
         let b3 = interner.get(&[1]).unwrap();
         let c3 = interner.get(&[2]).unwrap();
+        let d3 = interner.get(&[3]).unwrap();
 
         // They better be the same or it's broken
-        assert_eq!(a1, a2);
-        assert_eq!(a2, a3);
-        assert_eq!(b1, b2);
-        assert_eq!(b2, b3);
-        assert_eq!(c1, c2);
-        assert_eq!(c2, c3);
+        assert_eq!(a1.as_ptr(), a2.as_ptr());
+        assert_eq!(a2.as_ptr(), a3.as_ptr());
+        assert_eq!(b1.as_ptr(), b2.as_ptr());
+        assert_eq!(b2.as_ptr(), b3.as_ptr());
+        assert_eq!(c1.as_ptr(), c2.as_ptr());
+        assert_eq!(c2.as_ptr(), c3.as_ptr());
+        assert_eq!(d1.as_ptr(), d2.as_ptr());
+        assert_eq!(d2.as_ptr(), d3.as_ptr());
     }
 }
