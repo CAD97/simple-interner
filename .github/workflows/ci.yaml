@@ -1,0 +1,117 @@
+name: CI
+on:
+  pull_request:
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_NET_RETRY: 10
+  RUSTUP_MAX_RETRIES: 10
+  RUST_BACKTRACE: short
+  MIRIFLAGS: -Zmiri-strict-provenance
+
+jobs:
+  tests:
+    name: Run tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Generate lockfile for cache
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Run tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --all-features
+
+  features:
+    name: Test feature powerset
+    runs-on: ubuntu-latest
+    needs: tests
+    env:
+      CARGO_INCREMENTAL: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+          profile: minimal
+          override: true
+
+      - name: Generate lockfile for cache
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Test feature powerset
+        uses: actions-rs/cargo@v1
+        with:
+          command: hack
+          args: test --feature-powerset --optional-deps --exclude-all-features --keep-going
+
+  miri:
+    name: Test feature powerset under miri
+    runs-on: ubuntu-latest
+    needs: features
+    env:
+      CARGO_INCREMENTAL: 1
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install nightly toolchain
+        uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          profile: minimal
+          override: true
+          components: miri
+
+      - name: Generate lockfile for cache
+        uses: actions-rs/cargo@v1
+        with:
+          command: generate-lockfile
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      
+      - name: Setup miri
+        uses: actions-rs/cargo@v1
+        with:
+          command: miri
+          args: setup
+
+      - name: Run the tests
+        uses: actions-rs/cargo@v1
+        with:
+          command: hack
+          args: miri test --feature-powerset --optional-deps
