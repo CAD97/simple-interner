@@ -14,7 +14,11 @@ maintenance = { status = "passively-maintained" }
 
 [features]
 raw = ["hashbrown", "hashbrown/raw"]
+static = ["hashbrown"]
 
 [dependencies]
 parking_lot = { version = "0.12.1", optional = true, default-features = false }
 hashbrown = { version = "0.12.2", optional = true, default-features = false, features = ["raw"] }
+
+[dev-dependencies]
+hash32 = "0.3"

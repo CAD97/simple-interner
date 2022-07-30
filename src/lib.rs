@@ -15,7 +15,7 @@
 //!
 //! |             crate | non-global | `'static` opt | non-`str` |  symbol size  | symbols deref
 //! | ----------------: | :--------: | :-----------: | :-------: | :-----------: | :-----------:
-//! |   simple-interner |    yes     |      no       |    yes    |     `&T`      |      yes
+//! |   simple-interner |    yes     |      yes[^1]  |    yes    |     `&T`      |      yes
 //! |        [intaglio] |    yes     |      yes      |    no     |     `u32`     |      no
 //! |      [internment] | optionally |      no       |    yes    |     `&T`      |      yes
 //! |           [lasso] |    yes     |      yes      |    no     | `u8`–`usize`  |      no
@@ -25,6 +25,8 @@
 //! |            [ustr] |    no      |      no       |    no     |    `usize`    |      yes
 //!
 //! (PRs to this table are welcome!) <!-- crate must have seen activity in the last year -->
+//!
+//! [^1]: Available with the `static` feature and [`Interner::with_hasher`].
 //!
 //! [intaglio]: https://lib.rs/crates/intaglio
 //! [lasso]: https://lib.rs/crates/lasso
@@ -109,5 +111,22 @@ mod tests {
         assert_eq!(c2.as_ptr(), c3.as_ptr());
         assert_eq!(d1.as_ptr(), d2.as_ptr());
         assert_eq!(d2.as_ptr(), d3.as_ptr());
+    }
+
+    #[cfg(feature = "static")]
+    #[test]
+    fn static_interner() {
+        use hash32::{BuildHasherDefault, FnvHasher};
+
+        static INTERNER: Interner<str, BuildHasherDefault<FnvHasher>> =
+            Interner::with_hasher(BuildHasherDefault::new());
+
+        let non_static_str = String::from("a");
+
+        let interned = INTERNER.intern(non_static_str);
+
+        let static_str: &'static str = Interned::get(&interned);
+
+        assert_eq!(static_str, "a");
     }
 }
