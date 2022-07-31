@@ -15,7 +15,7 @@
 //!
 //! |             crate |    global   | local | `'static` opt [^1] | non-`str` |  symbol size  | symbols deref
 //! | ----------------: | :---------: | :---: | :----------------: | :-------: | :-----------: | :-----------:
-//! |   simple-interner |     yes     |  yes  |         no         |    yes    |     `&T`      |      yes
+//! |   simple-interner |   yes [^2]  |  yes  |         no         |    yes    |     `&T`      |      yes
 //! |        [intaglio] |     no      |  yes  |         yes        |    no     |     `u32`     |      no
 //! |      [internment] |     yes     |  yes  |         no         |    yes    |     `&T`      |      yes
 //! |           [lasso] |     no      |  yes  |         yes        |    no     | `u8`–`usize`  |      no
@@ -29,6 +29,10 @@
 //! [^1]: The `'static` optimization refers to storing `&'static` references
 //!       without copying the pointee into the backing store, e.g. storing
 //!       `Cow<'static, str>` instead of `Box<str>`.
+//!
+//! [^2]: At the moment, creating the [`Interner`] inside a `static`, using
+//!       [`Interner::with_hasher`], requires the `hashbrown` feature to
+//!       be enabled.
 //!
 //! [intaglio]: https://lib.rs/crates/intaglio
 //! [lasso]: https://lib.rs/crates/lasso
@@ -115,7 +119,7 @@ mod tests {
         assert_eq!(d2.as_ptr(), d3.as_ptr());
     }
 
-    #[cfg(feature = "static")]
+    #[cfg(feature = "hashbrown")]
     #[test]
     fn static_interner() {
         use hash32::{BuildHasherDefault, FnvHasher};

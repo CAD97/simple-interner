@@ -170,8 +170,8 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
         // but needs a different call than intern_raw to use the intrinsic
         // BuildHasher rather than an external one. It's not worth the effort.
 
-        let boxed = PinBox::new(t.into());
-        match arena.entry(boxed) {
+        let entry = arena.entry(PinBox::new(t.into()));
+        match entry {
             Entry::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
             Entry::Vacant(entry) => {
                 let interned = Interned(unsafe { entry.key().as_ref() });
@@ -269,7 +269,7 @@ impl<T: ?Sized> Interner<T> {
 
 /// Constructors to control the backing `HashSet`'s hash function
 impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
-    #[cfg(not(feature = "static"))]
+    #[cfg(not(feature = "hashbrown"))]
     /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
@@ -279,7 +279,7 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
         }
     }
 
-    #[cfg(feature = "static")]
+    #[cfg(feature = "hashbrown")]
     /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
