@@ -29,7 +29,7 @@ use {crate::parking_lot_shim::*, parking_lot::RwLock};
 /// The resolved reference is guaranteed valid until the PinBox is dropped.
 struct PinBox<T: ?Sized> {
     ptr: NonNull<T>,
-    _marker: PhantomData<T>,
+    _marker: PhantomData<Box<T>>,
 }
 
 impl<T: ?Sized> PinBox<T> {
@@ -110,13 +110,11 @@ impl<T: ?Sized> Borrow<T> for PinBox<T> {
 }
 
 #[allow(unsafe_code)]
-/// `PinBox<T>` is `Send` if `T` is `Send` because it owns its
-/// data `T`, which is unaliased.
+// SAFETY: PinBox acts like Box.
 unsafe impl<T: Send + ?Sized> Send for PinBox<T> {}
 
 #[allow(unsafe_code)]
-/// `PinBox<T>` is `Sync` if `T` is `Sync` because it owns its
-/// data `T`, which is unaliased.
+// SAFETY: PinBox acts like Box.
 unsafe impl<T: Sync + ?Sized> Sync for PinBox<T> {}
 
 /// An interner based on a `HashSet`. See the crate-level docs for more.
@@ -272,7 +270,7 @@ impl<T: ?Sized> Interner<T> {
 /// Constructors to control the backing `HashSet`'s hash function
 impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
     #[cfg(not(feature = "static"))]
-    /// Create an empty interner which will use the given hasher to hash the strings.
+    /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
     pub fn with_hasher(hasher: H) -> Self {
@@ -282,7 +280,7 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
     }
 
     #[cfg(feature = "static")]
-    /// Create an empty interner which will use the given hasher to hash the strings.
+    /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
     pub const fn with_hasher(hasher: H) -> Self {
@@ -291,7 +289,7 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
         }
     }
 
-    /// Create an empty interner with the specified capacity, using `hasher` to hash the strings.
+    /// Create an empty interner with the specified capacity, using `hasher` to hash the values.
     ///
     /// The interner will be able to hold at least `capacity` items without reallocating.
     /// If `capacity` is 0, the interner will not initially allocate.
