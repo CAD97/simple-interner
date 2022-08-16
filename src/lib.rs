@@ -13,24 +13,32 @@
 //! This crate exists to give the option of using the simplest interface. For
 //! a more featureful interner, consider using a different crate, such as
 //!
-//! |             crate | non-global | `'static` opt | non-`str` |  symbol size  | symbols deref
-//! | ----------------: | :--------: | :-----------: | :-------: | :-----------: | :-----------:
-//! |   simple-interner |    yes     |      no       |    yes    |     `&T`      |      yes
-//! |        [intaglio] |    yes     |      yes      |    no     |     `u32`     |      no
-//! |      [internment] | optionally |      no       |    yes    |     `&T`      |      yes
-//! |           [lasso] |    yes     |      yes      |    no     | `u8`–`usize`  |      no
-//! | [string-interner] |    yes     |  optionally   |    no     | `u16`–`usize` |      no
-//! |    [string_cache] |    yes     |  buildscript  |    no     |     `u64`     |      yes
-//! |    [symbol_table] | optionally |      no       |    no     |     `u32`     |  global only
-//! |            [ustr] |    no      |      no       |    no     |    `usize`    |      yes
+//! |             crate |    global   | local | `'static` opt [^1] | non-`str` |  symbol size  | symbols deref
+//! | ----------------: | :---------: | :---: | :----------------: | :-------: | :-----------: | :-----------:
+//! |   simple-interner |   yes [^2]  |  yes  |         no         |    yes    |     `&T`      |      yes
+//! |        [intaglio] |     no      |  yes  |         yes        |    no     |     `u32`     |      no
+//! |      [internment] |     yes     |  yes  |         no         |    yes    |     `&T`      |      yes
+//! |           [lasso] |     no      |  yes  |         yes        |    no     | `u8`–`usize`  |      no
+//! | [string-interner] |     no      |  yes  |     optionally     |    no     | `u16`–`usize` |      no
+//! |    [string_cache] | buildscript |  yes  |     buildscript    |    no     |     `u64`     |      yes
+//! |    [symbol_table] |     yes     |  yes  |         no         |    no     |     `u32`     |  global only
+//! |            [ustr] |     yes     |  no   |         no         |    no     |    `usize`    |      yes
 //!
 //! (PRs to this table are welcome!) <!-- crate must have seen activity in the last year -->
+//!
+//! [^1]: The `'static` optimization refers to storing `&'static` references
+//!       without copying the pointee into the backing store, e.g. storing
+//!       `Cow<'static, str>` instead of `Box<str>`.
+//!
+//! [^2]: At the moment, creating the [`Interner`] inside a `static`, using
+//!       [`Interner::with_hasher`], requires the `hashbrown` feature to
+//!       be enabled.
 //!
 //! [intaglio]: https://lib.rs/crates/intaglio
 //! [lasso]: https://lib.rs/crates/lasso
 //! [internment]: https://lib.rs/crates/internment
 //! [string-interner]: https://lib.rs/crates/string-interner
-//! [string_cache]: https://lib.rs/crates/string-cache
+//! [string_cache]: https://lib.rs/crates/string_cache
 //! [symbol_table]: https://lib.rs/crates/symbol_table
 //! [ustr]: https://lib.rs/crates/ustr
 
@@ -109,5 +117,22 @@ mod tests {
         assert_eq!(c2.as_ptr(), c3.as_ptr());
         assert_eq!(d1.as_ptr(), d2.as_ptr());
         assert_eq!(d2.as_ptr(), d3.as_ptr());
+    }
+
+    #[cfg(feature = "hashbrown")]
+    #[test]
+    fn static_interner() {
+        use hash32::{BuildHasherDefault, FnvHasher};
+
+        static INTERNER: Interner<str, BuildHasherDefault<FnvHasher>> =
+            Interner::with_hasher(BuildHasherDefault::new());
+
+        let non_static_str = String::from("a");
+
+        let interned = INTERNER.intern(non_static_str);
+
+        let static_str: &'static str = Interned::get(&interned);
+
+        assert_eq!(static_str, "a");
     }
 }

@@ -5,6 +5,7 @@ use {
         collections::hash_map::RandomState,
         fmt,
         hash::{BuildHasher, Hash, Hasher},
+        marker::PhantomData,
         ops::Deref,
         ptr::NonNull,
     },
@@ -26,16 +27,22 @@ use {crate::parking_lot_shim::*, parking_lot::RwLock};
 /// uses raw-pointer borrowing rules to avoid invalidating extant references.
 ///
 /// The resolved reference is guaranteed valid until the PinBox is dropped.
-struct PinBox<T: ?Sized>(NonNull<T>);
+struct PinBox<T: ?Sized> {
+    ptr: NonNull<T>,
+    _marker: PhantomData<Box<T>>,
+}
 
 impl<T: ?Sized> PinBox<T> {
     fn new(x: Box<T>) -> Self {
-        PinBox(NonNull::new(Box::into_raw(x)).unwrap())
+        Self {
+            ptr: NonNull::new(Box::into_raw(x)).unwrap(),
+            _marker: PhantomData,
+        }
     }
 
     #[allow(unsafe_code)]
     unsafe fn as_ref<'a>(&self) -> &'a T {
-        self.0.as_ref()
+        self.ptr.as_ref()
     }
 }
 
@@ -43,7 +50,7 @@ impl<T: ?Sized> Drop for PinBox<T> {
     fn drop(&mut self) {
         #[allow(unsafe_code)]
         unsafe {
-            Box::from_raw(self.0.as_ptr())
+            Box::from_raw(self.ptr.as_ptr())
         };
     }
 }
@@ -102,6 +109,14 @@ impl<T: ?Sized> Borrow<T> for PinBox<T> {
     }
 }
 
+#[allow(unsafe_code)]
+// SAFETY: PinBox acts like Box.
+unsafe impl<T: Send + ?Sized> Send for PinBox<T> {}
+
+#[allow(unsafe_code)]
+// SAFETY: PinBox acts like Box.
+unsafe impl<T: Sync + ?Sized> Sync for PinBox<T> {}
+
 /// An interner based on a `HashSet`. See the crate-level docs for more.
 #[derive(Debug)]
 pub struct Interner<T: ?Sized, S = RandomState> {
@@ -155,8 +170,8 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
         // but needs a different call than intern_raw to use the intrinsic
         // BuildHasher rather than an external one. It's not worth the effort.
 
-        let boxed = PinBox::new(t.into());
-        match arena.entry(boxed) {
+        let entry = arena.entry(PinBox::new(t.into()));
+        match entry {
             Entry::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
             Entry::Vacant(entry) => {
                 let interned = Interned(unsafe { entry.key().as_ref() });
@@ -254,7 +269,8 @@ impl<T: ?Sized> Interner<T> {
 
 /// Constructors to control the backing `HashSet`'s hash function
 impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
-    /// Create an empty interner which will use the given hasher to hash the strings.
+    #[cfg(not(feature = "hashbrown"))]
+    /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
     pub fn with_hasher(hasher: H) -> Self {
@@ -263,7 +279,17 @@ impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
         }
     }
 
-    /// Create an empty interner with the specified capacity, using `hasher` to hash the strings.
+    #[cfg(feature = "hashbrown")]
+    /// Create an empty interner which will use the given hasher to hash the values.
+    ///
+    /// The interner is also created with the default capacity.
+    pub const fn with_hasher(hasher: H) -> Self {
+        Interner {
+            arena: RwLock::new(HashMap::with_hasher(hasher)),
+        }
+    }
+
+    /// Create an empty interner with the specified capacity, using `hasher` to hash the values.
     ///
     /// The interner will be able to hold at least `capacity` items without reallocating.
     /// If `capacity` is 0, the interner will not initially allocate.
