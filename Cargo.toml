@@ -1,6 +1,6 @@
 [package]
 name = "simple-interner"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 
 description = "A simple append-only interner"
@@ -20,4 +20,4 @@ parking_lot = { version = "0.12.1", optional = true, default-features = false }
 hashbrown = { version = "0.12.2", optional = true, default-features = false }
 
 [dev-dependencies]
-hash32 = "0.3"
+hash32 = "0.3.1"
