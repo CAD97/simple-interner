@@ -13,26 +13,27 @@
 //! This crate exists to give the option of using the simplest interface. For
 //! a more featureful interner, consider using a different crate, such as
 //!
-//! |             crate |    global   | local | `'static` opt [^1] | non-`str` |  symbol size  | symbols deref
-//! | ----------------: | :---------: | :---: | :----------------: | :-------: | :-----------: | :-----------:
-//! |   simple-interner |   yes [^2]  |  yes  |         no         |    yes    |     `&T`      |      yes
-//! |        [intaglio] |     no      |  yes  |         yes        |    no     |     `u32`     |      no
-//! |      [internment] |     yes     |  yes  |         no         |    yes    |     `&T`      |      yes
-//! |           [lasso] |     no      |  yes  |         yes        |    no     | `u8`–`usize`  |      no
-//! | [string-interner] |     no      |  yes  |     optionally     |    no     | `u16`–`usize` |      no
-//! |    [string_cache] | buildscript |  yes  |     buildscript    |    no     |     `u64`     |      yes
-//! |    [symbol_table] |     yes     |  yes  |         no         |    no     |     `u32`     |  global only
-//! |            [ustr] |     yes     |  no   |         no         |    no     |    `usize`    |      yes
+//! |             crate |    global   |  local | `'static` opt[^1] | non-`str` |  symbol size  | symbols deref |
+//! | ----------------: | :---------: | :----: | :---------------: | :-------: | :-----------: | :-----------: |
+//! |   simple-interner |  manual[^2] |   yes  |         no        |    yes    |     `&T`      |      yes      |
+//! |        [intaglio] |     no      |   yes  |         yes       |    no     |     `u32`     |      no       |
+//! |      [internment] |    rc[^3]   |   yes  |         no        |    yes    |     `&T`      |      yes      |
+//! |           [lasso] |     no      |   yes  |         yes       |    no     | `u8`–`usize`  |      no       |
+//! | [string-interner] |     no      |   yes  |     optionally    |    no     | `u16`–`usize` |      no       |
+//! |    [string_cache] | static only | rc[^3] |     buildscript   |    no     |     `u64`     |      yes      |
+//! |    [symbol_table] |     yes     |   yes  |         no        |    no     |     `u32`     |  global only  |
+//! |            [ustr] |     yes     |   no   |         no        |    no     |    `usize`    |      yes      |
 //!
 //! (PRs to this table are welcome!) <!-- crate must have seen activity in the last year -->
 //!
-//! [^1]: The `'static` optimization refers to storing `&'static` references
-//!       without copying the pointee into the backing store, e.g. storing
-//!       `Cow<'static, str>` instead of `Box<str>`.
+//! [^1]: The interner stores `&'static` references without copying the pointee
+//!       into the store, e.g. storing `Cow<'static, str>` instead of `Box<str>`.
 //!
 //! [^2]: At the moment, creating the [`Interner`] inside a `static`, using
 //!       [`Interner::with_hasher`], requires the `hashbrown` feature to
 //!       be enabled.
+//!
+//! [^3]: Uses reference counting to collect globally unused symbols.
 //!
 //! [intaglio]: https://lib.rs/crates/intaglio
 //! [lasso]: https://lib.rs/crates/lasso
