@@ -48,7 +48,7 @@ impl<T: ?Sized> PinBox<T> {
 
 impl<T: ?Sized> Drop for PinBox<T> {
     fn drop(&mut self) {
-        #[allow(unsafe_code)]
+        #[allow(unsafe_code)] // SAFETY: PinBox acts like Box.
         unsafe {
             Box::from_raw(self.ptr.as_ptr())
         };
@@ -57,7 +57,7 @@ impl<T: ?Sized> Drop for PinBox<T> {
 
 impl<T: ?Sized> Deref for PinBox<T> {
     type Target = T;
-    #[allow(unsafe_code)]
+    #[allow(unsafe_code)] // SAFETY: PinBox acts like Box.
     fn deref(&self) -> &T {
         unsafe { self.as_ref() }
     }
@@ -109,13 +109,11 @@ impl<T: ?Sized> Borrow<T> for PinBox<T> {
     }
 }
 
-#[allow(unsafe_code)]
-// SAFETY: PinBox acts like Box.
-unsafe impl<T: Send + ?Sized> Send for PinBox<T> {}
+#[allow(unsafe_code)] // SAFETY: PinBox acts like Box.
+unsafe impl<T: ?Sized> Send for PinBox<T> where Box<T>: Send {}
 
-#[allow(unsafe_code)]
-// SAFETY: PinBox acts like Box.
-unsafe impl<T: Sync + ?Sized> Sync for PinBox<T> {}
+#[allow(unsafe_code)] // SAFETY: PinBox acts like Box.
+unsafe impl<T: ?Sized> Sync for PinBox<T> where Box<T>: Sync {}
 
 /// An interner based on a `HashSet`. See the crate-level docs for more.
 #[derive(Debug)]
@@ -131,7 +129,6 @@ impl<T: ?Sized, S: Default> Default for Interner<T, S> {
     }
 }
 
-#[allow(unsafe_code)]
 impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
     /// Intern an item into the interner.
     ///
@@ -171,6 +168,7 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
         // BuildHasher rather than an external one. It's not worth the effort.
 
         let entry = arena.entry(PinBox::new(t.into()));
+        #[allow(unsafe_code)] // SAFETY: Interned ties the lifetime to the interner.
         match entry {
             Entry::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
             Entry::Vacant(entry) => {
@@ -187,6 +185,7 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
     /// this method. This guarantees that the returned reference will live no
     /// longer than this interner does.
     pub fn get(&self, t: &T) -> Option<Interned<'_, T>> {
+        #[allow(unsafe_code)] // SAFETY: Interned ties the lifetime to the interner.
         self.arena
             .read()
             .expect("interner lock should not be poisoned")
@@ -197,7 +196,7 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
 
 #[allow(unsafe_code)]
 #[cfg(feature = "raw")]
-impl<T: ?Sized, S: BuildHasher> Interner<T, S> {
+impl<T: ?Sized, S> Interner<T, S> {
     /// Raw interning interface for any `T`.
     pub fn intern_raw<Q>(
         &self,
@@ -268,7 +267,7 @@ impl<T: ?Sized> Interner<T> {
 }
 
 /// Constructors to control the backing `HashSet`'s hash function
-impl<T: Eq + Hash + ?Sized, H: BuildHasher> Interner<T, H> {
+impl<T: ?Sized, H: BuildHasher> Interner<T, H> {
     #[cfg(not(feature = "hashbrown"))]
     /// Create an empty interner which will use the given hasher to hash the values.
     ///
