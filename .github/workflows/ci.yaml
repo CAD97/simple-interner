@@ -73,6 +73,9 @@ jobs:
         with:
           command: hack
           args: test --feature-powerset --optional-deps --exclude-all-features --keep-going
+        env:
+          RUSTFLAGS: --cfg=ci_powerset
+          RUSTDOCFLAGS: --cfg=ci_powerset
 
   miri:
     name: Test feature powerset under miri
@@ -115,3 +118,6 @@ jobs:
         with:
           command: hack
           args: miri test --feature-powerset --optional-deps
+        env:
+          RUSTFLAGS: --cfg=ci_powerset
+          RUSTDOCFLAGS: --cfg=ci_powerset

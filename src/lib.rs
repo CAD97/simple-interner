@@ -45,18 +45,37 @@
 
 #![forbid(unconditional_recursion, future_incompatible)]
 #![warn(unsafe_code, bad_style, missing_docs, missing_debug_implementations)]
+#![cfg_attr(not(feature = "std"), no_std)]
+
+#[cfg(all(
+    not(feature = "std"),
+    any(not(feature = "hashbrown"), not(feature = "parking_lot")),
+    not(ci_powerset)
+))]
+compile_error!("no-std requires enabling both the `hashbrown` and `parking_lot` features");
+
+#[cfg(not(feature = "std"))]
+extern crate alloc;
 
 #[cfg(feature = "parking_lot")]
 mod parking_lot_shim;
 
+#[cfg(any(feature = "std", all(feature = "hashbrown", feature = "parking_lot")))]
 mod interner;
+#[cfg(any(feature = "std", all(feature = "hashbrown", feature = "parking_lot")))]
 pub use interner::Interner;
 
+#[cfg(any(feature = "std", all(feature = "hashbrown", feature = "parking_lot")))]
 mod interned;
+#[cfg(any(feature = "std", all(feature = "hashbrown", feature = "parking_lot")))]
 pub use interned::Interned;
 
 #[cfg(test)]
+#[cfg(any(feature = "std", all(feature = "hashbrown", feature = "parking_lot")))]
 mod tests {
+    #[cfg(not(feature = "std"))]
+    use alloc::{boxed::Box, string::String, vec::Vec};
+
     use super::*;
 
     #[test]

@@ -13,11 +13,13 @@ license = "Apache-2.0 OR MIT"
 maintenance = { status = "passively-maintained" }
 
 [features]
+default = ["std"]
+std = []
 raw = ["hashbrown", "hashbrown/raw"]
 
 [dependencies]
 parking_lot = { version = "0.12.1", optional = true, default-features = false }
-hashbrown = { version = "0.12.2", optional = true, default-features = false }
+hashbrown = { version = "0.13.2", optional = true, default-features = false, features = ["ahash"] }
 
 [dev-dependencies]
 hash32 = "0.3.1"
