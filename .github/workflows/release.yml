@@ -25,5 +25,12 @@ jobs:
         with:
           tool: cargo-release
 
-      - name: Create release
+      - name: Create Cargo release
         run: cargo release -x ${{github.event.inputs.level}}
+
+      - name: Create GitHub release
+        uses: taiki-e/create-gh-release-action@v1
+        with:
+          changelog: CHANGELOG.md
+          token: ${{github.token}}
+          title: Version $version
