@@ -19,6 +19,10 @@ conventional sections:
 
 ## [Unreleased]
 
+### Fixed
+
+- *Actually* published the tagged git sha, hopefully. CI no likey publishing.
+
 ## [0.3.3] - 2023-02-04
 
 ### Fixed
