@@ -19,7 +19,15 @@ conventional sections:
 
 ## [Unreleased]
 
+### Fixed
+
+- Fixed crates-io detection of README
+- Actually published the git sha which is tagged... pending publish scripts
+
 ## [0.3.2] - 2023-02-04
+
+Due to a mishap with publishing scripts, the published commit is a different
+SHA than the release actually tagged in Git. This should be fixed by 0.3.3.
 
 ### Added
 
