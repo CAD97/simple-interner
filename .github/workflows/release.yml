@@ -1,36 +1,18 @@
-name: Publish a release
+name: Make GitHub Release
 on:
-  workflow_dispatch:
-    inputs:
-      level:
-        description: The kind of release
-        required: true
-        type: choice
-        options: [release, patch, minor, major, alpha, beta, rc]
+  push:
+    tags:
+      - v[0-9]+.*
 
 jobs:
-  make-release-pr:
+  create-release:
     runs-on: ubuntu-latest
-    permissions: write-all
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-
-      - name: Install stable toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-release
-        uses: taiki-e/install-action@main
-        with:
-          tool: cargo-release
-
-      - name: Create Cargo release
-        run: cargo release -x ${{github.event.inputs.level}}
 
       - name: Create GitHub release
         uses: taiki-e/create-gh-release-action@v1
         with:
           changelog: CHANGELOG.md
           token: ${{github.token}}
-          title: Version $version
