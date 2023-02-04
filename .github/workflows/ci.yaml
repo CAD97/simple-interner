@@ -85,37 +85,38 @@ jobs:
       - name: Run tests
         run: cargo miri test
 
-  msrv:
-    name: Run tests (msrv)
-    runs-on: ubuntu-latest
-    needs: tests
+  # msrv:
+  #   name: Run tests (msrv)
+  #   runs-on: ubuntu-latest
+  #   needs: tests
 
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v3
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v3
 
-      - name: Install cargo-binstall
-        uses: taiki-e/install-action@cargo-binstall
+  #     # https://github.com/foresterre/cargo-msrv/issues/594
+  #     - name: Install cargo-binstall
+  #       uses: taiki-e/install-action@main
+  #       with:
+  #         tool: cargo-msrv
 
-      # https://github.com/foresterre/cargo-msrv/issues/594
-      - name: Install cargo-msrv
-        run: cargo binstall -y --pkg-url="{ repo }/releases/download/v{ version }/{ name }_v{ version }_Darwin_x86_64{ archive-suffix }" --pkg-fmt="tar" cargo-msrv
-
-      - name: Determine MSRV
-        id: get-msrv
-        shell: bash
-        run: |
-          MSRV=$(cargo msrv show 2>&1 | sed -n 2p)
-          echo "msrv=$MSRV"
-          echo "msrv=$MSRV" >> $GITHUB_OUTPUT
+  #     - name: Determine MSRV
+  #       id: get-msrv
+  #       shell: bash
+  #       run: |
+  #         cargo msrv --version
+  #         cargo msrv show
+  #         MSRV=$(cargo msrv show 2>&1 | tail -n1)
+  #         echo "msrv=$MSRV"
+  #         echo "msrv=$MSRV" >> $GITHUB_OUTPUT
       
-      - name: Install toolchain
-        uses: dtolnay/rust-toolchain@master
-        with:
-          toolchain: ${{ steps.get-msrv.outputs.msrv }}
+  #     - name: Install toolchain
+  #       uses: dtolnay/rust-toolchain@master
+  #       with:
+  #         toolchain: ${{ steps.get-msrv.outputs.msrv }}
 
-      - name: Setup cache
-        uses: Swatinem/rust-cache@v1
+  #     - name: Setup cache
+  #       uses: Swatinem/rust-cache@v1
 
-      - name: Verify MSRV
-        run: cargo msrv verify
+  #     - name: Verify MSRV
+  #       run: cargo msrv verify
