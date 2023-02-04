@@ -19,6 +19,8 @@ conventional sections:
 
 ## [Unreleased]
 
+## [0.3.4] - 2023-02-04
+
 ### Fixed
 
 - *Actually* published the tagged git sha, hopefully. CI no likey publishing.
@@ -46,6 +48,7 @@ SHA than the release actually tagged in Git. This should be fixed by 0.3.3.
 
 <!-- and now for the comparison link urls: -->
 
-[Unreleased]: https://github.com/cad97/simple-interner/compare/v0.3.3...HEAD
+[Unreleased]: https://github.com/cad97/simple-interner/compare/v0.3.4...HEAD
+[0.3.4]: https://github.com/cad97/simple-interner/compare/v0.3.3...v0.3.4
 [0.3.3]: https://github.com/cad97/simple-interner/compare/v0.3.2...v0.3.3
 [0.3.2]: https://github.com/cad97/simple-interner/compare/v0.3.1...v0.3.2
