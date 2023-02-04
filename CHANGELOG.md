@@ -19,6 +19,8 @@ conventional sections:
 
 ## [Unreleased]
 
+## [0.3.2] - 2023-02-04
+
 ### Added
 
 - Started keeping a changelog
@@ -30,4 +32,5 @@ conventional sections:
 
 <!-- and now for the comparison link urls: -->
 
-[Unreleased]: https://github.com/cad97/simple-interner/compare/v0.3.1...HEAD
+[Unreleased]: https://github.com/cad97/simple-interner/compare/v0.3.2...HEAD
+[0.3.2]: https://github.com/cad97/simple-interner/compare/v0.3.1...v0.3.2
