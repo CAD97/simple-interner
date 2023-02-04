@@ -94,10 +94,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
 
+      - name: Install cargo-binstall
+        uses: taiki-e/install-action@cargo-binstall
+
+      # https://github.com/foresterre/cargo-msrv/issues/594
       - name: Install cargo-msrv
-        uses: taiki-e/install-action@main
-        with:
-          tool: cargo-msrv
+        run: cargo binstall -y --pkg-url="{ repo }/releases/download/v{ version }/{ name }_v{ version }_Darwin_x86_64{ archive-suffix }" --pkg-fmt="tar" cargo-msrv
 
       - name: Determine MSRV
         id: get-msrv
