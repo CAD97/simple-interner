@@ -1,13 +1,11 @@
 name: CI
 on:
+  push:
+    branches: ["main"]
   pull_request:
 
 env:
-  CARGO_INCREMENTAL: 0
-  CARGO_NET_RETRY: 10
-  RUSTUP_MAX_RETRIES: 10
   RUST_BACKTRACE: short
-  MIRIFLAGS: -Zmiri-strict-provenance
 
 jobs:
   tests:
@@ -19,28 +17,30 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Generate lockfile for cache
-        uses: actions-rs/cargo@v1
-        with:
-          command: generate-lockfile
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v1
 
+      - name: Build tests
+        run: cargo test --all-features --no-run
+
       - name: Run tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: test
-          args: --all-features
+        run: cargo test --all-features
+
+  # semver:
+  #   name: Check semver
+  #   runs-on: ubuntu-latest
+
+  #   steps:
+  #     - name: Checkout repository
+  #       uses: actions/checkout@v3
+
+  #     - name: Check semver
+  #       uses: obi1kenobi/cargo-semver-checks-action@v1
 
   features:
-    name: Test feature powerset
+    name: Run feature tests
     runs-on: ubuntu-latest
     needs: tests
     env:
@@ -51,16 +51,7 @@ jobs:
         uses: actions/checkout@v3
 
       - name: Install stable toolchain
-        uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-          profile: minimal
-          override: true
-
-      - name: Generate lockfile for cache
-        uses: actions-rs/cargo@v1
-        with:
-          command: generate-lockfile
+        uses: dtolnay/rust-toolchain@stable
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v1
@@ -69,49 +60,60 @@ jobs:
         uses: taiki-e/install-action@cargo-hack
 
       - name: Test feature powerset
-        uses: actions-rs/cargo@v1
-        with:
-          command: hack
-          args: test --feature-powerset --optional-deps --exclude-all-features --keep-going
+        run: cargo hack test --feature-powerset --optional-deps --exclude-all-features --keep-going
 
   miri:
-    name: Test feature powerset under miri
+    name: Run tests (miri)
     runs-on: ubuntu-latest
-    needs: features
-    env:
-      CARGO_INCREMENTAL: 1
+    needs: tests
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
       - name: Install nightly toolchain
-        uses: actions-rs/toolchain@v1
+        uses: dtolnay/rust-toolchain@nightly
         with:
-          toolchain: nightly
-          profile: minimal
-          override: true
           components: miri
 
-      - name: Generate lockfile for cache
-        uses: actions-rs/cargo@v1
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v1
+      
+      - name: Setup miri
+        run: cargo miri setup
+
+      - name: Run tests
+        run: cargo miri test
+
+  msrv:
+    name: Run tests (msrv)
+    runs-on: ubuntu-latest
+    needs: tests
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install cargo-msrv
+        uses: taiki-e/install-action@main
         with:
-          command: generate-lockfile
+          tool: cargo-msrv
+
+      - name: Determine MSRV
+        id: get-msrv
+        shell: bash
+        run: |
+          MSRV=$(cargo msrv show 2>&1 | sed -n 2p)
+          echo "msrv=$MSRV"
+          echo "msrv=$MSRV" >> $GITHUB_OUTPUT
+      
+      - name: Install toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ steps.get-msrv.outputs.msrv }}
 
       - name: Setup cache
         uses: Swatinem/rust-cache@v1
 
-      - name: Install cargo-hack
-        uses: taiki-e/install-action@cargo-hack
-      
-      - name: Setup miri
-        uses: actions-rs/cargo@v1
-        with:
-          command: miri
-          args: setup
-
-      - name: Run the tests
-        uses: actions-rs/cargo@v1
-        with:
-          command: hack
-          args: miri test --feature-powerset --optional-deps
+      - name: Verify MSRV
+        run: cargo msrv verify
