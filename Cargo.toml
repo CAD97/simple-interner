@@ -2,6 +2,7 @@
 name = "simple-interner"
 version = "0.3.1"
 edition = "2021"
+rust-version = "1.60.0"
 
 description = "A simple append-only interner"
 repository = "https://github.com/CAD97/simple-interner"
@@ -17,7 +18,7 @@ raw = ["hashbrown", "hashbrown/raw"]
 
 [dependencies]
 parking_lot = { version = "0.12.1", optional = true, default-features = false }
-hashbrown = { version = "0.12.2", optional = true, default-features = false }
+hashbrown = { version = "0.13.2", optional = true, default-features = false }
 
 [dev-dependencies]
 hash32 = "0.3.1"
