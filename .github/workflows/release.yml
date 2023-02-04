@@ -1,0 +1,29 @@
+name: Publish a release
+on:
+  workflow_dispatch:
+    inputs:
+      level:
+        description: The kind of release
+        required: true
+        type: choice
+        options: [release, patch, minor, major, alpha, beta, rc]
+
+jobs:
+  make-release-pr:
+    runs-on: ubuntu-latest
+    permissions: write-all
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-release
+        uses: taiki-e/install-action@main
+        with:
+          tool: cargo-release
+
+      - name: Create release
+        run: cargo release -x ${{github.event.inputs.level}}

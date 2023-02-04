@@ -26,7 +26,7 @@ conventional sections:
 ### Improved
 
 - Updated CI conventions
-- Automated release publishing with cargo-release and cargo-bins/release-pr
+- Automated release publishing with cargo-release
 
 <!-- and now for the comparison link urls: -->
 
