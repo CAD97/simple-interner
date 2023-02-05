@@ -33,8 +33,8 @@ a more featureful interner, consider using a different crate, such as
 [^1]: The interner stores `&'static` references without copying the pointee
     into the store, e.g. storing `Cow<'static, str>` instead of `Box<str>`.
 
-[^2]: At the moment, creating the `Interner` inside a `static`, using
-    `Interner::with_hasher`, requires the `hashbrown` feature to be enabled.
+[^2]: At the moment, creating the `Interner` inside a `static` requires
+    using `Interner::with_hasher`.
 
 [^3]: Uses reference counting to collect globally unused symbols.
 

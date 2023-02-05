@@ -1,27 +1,28 @@
 use {
     crate::Interned,
-    std::{
+    core::{
         borrow::Borrow,
-        collections::hash_map::RandomState,
+        cmp::Ordering,
         fmt,
         hash::{BuildHasher, Hash, Hasher},
         marker::PhantomData,
         ops::Deref,
         ptr::NonNull,
     },
+    lock_api::{RawRwLock, RwLock},
 };
+
+#[cfg(not(feature = "std"))]
+use alloc::boxed::Box;
+#[cfg(feature = "std")]
+use std::collections::hash_map::RandomState;
 
 #[cfg(feature = "raw")]
 use hashbrown::hash_map::RawEntryMut;
-#[cfg(feature = "hashbrown")]
 use hashbrown::hash_map::{Entry, HashMap};
-#[cfg(not(feature = "hashbrown"))]
-use std::collections::hash_map::{Entry, HashMap};
 
-#[cfg(not(feature = "parking_lot"))]
-use std::sync::RwLock;
-#[cfg(feature = "parking_lot")]
-use {crate::parking_lot_shim::*, parking_lot::RwLock};
+#[cfg(feature = "std")]
+use crate::std_lock_api::StdRawRwLock;
 
 /// A wrapper around box that does not provide &mut access to the pointee and
 /// uses raw-pointer borrowing rules to avoid invalidating extant references.
@@ -82,17 +83,17 @@ impl<T: ?Sized + PartialEq> PartialEq<T> for PinBox<T> {
 }
 
 impl<T: ?Sized + Ord> Ord for PinBox<T> {
-    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+    fn cmp(&self, other: &Self) -> Ordering {
         (**self).cmp(&**other)
     }
 }
 impl<T: ?Sized + PartialOrd> PartialOrd for PinBox<T> {
-    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
         (**self).partial_cmp(&**other)
     }
 }
 impl<T: ?Sized + PartialOrd> PartialOrd<T> for PinBox<T> {
-    fn partial_cmp(&self, other: &T) -> Option<std::cmp::Ordering> {
+    fn partial_cmp(&self, other: &T) -> Option<Ordering> {
         (**self).partial_cmp(other)
     }
 }
@@ -115,13 +116,21 @@ unsafe impl<T: ?Sized> Send for PinBox<T> where Box<T>: Send {}
 #[allow(unsafe_code)] // SAFETY: PinBox acts like Box.
 unsafe impl<T: ?Sized> Sync for PinBox<T> where Box<T>: Sync {}
 
+#[cfg(feature = "std")]
 /// An interner based on a `HashSet`. See the crate-level docs for more.
 #[derive(Debug)]
-pub struct Interner<T: ?Sized, S = RandomState> {
-    arena: RwLock<HashMap<PinBox<T>, (), S>>,
+pub struct Interner<T: ?Sized, S = RandomState, R: RawRwLock = StdRawRwLock> {
+    arena: RwLock<R, HashMap<PinBox<T>, (), S>>,
 }
 
-impl<T: ?Sized, S: Default> Default for Interner<T, S> {
+#[cfg(not(feature = "std"))]
+/// An interner based on a `HashSet`. See the crate-level docs for more.
+#[derive(Debug)]
+pub struct Interner<T: ?Sized, S, R: RawRwLock> {
+    arena: RwLock<R, HashMap<PinBox<T>, (), S>>,
+}
+
+impl<T: ?Sized, S: Default, R: RawRwLock + Default> Default for Interner<T, S, R> {
     fn default() -> Self {
         Interner {
             arena: RwLock::default(),
@@ -129,7 +138,7 @@ impl<T: ?Sized, S: Default> Default for Interner<T, S> {
     }
 }
 
-impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
+impl<T: Eq + Hash + ?Sized, S: BuildHasher, R: RawRwLock> Interner<T, S, R> {
     /// Intern an item into the interner.
     ///
     /// Takes borrowed or heap-allocated items. If the item has not been
@@ -146,19 +155,16 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
     /// Otherwise, pass in a reference.
     ///
     /// See `get` for more about the interned symbol.
-    pub fn intern<R>(&self, t: R) -> Interned<'_, T>
+    pub fn intern<B>(&self, t: B) -> Interned<'_, T>
     where
-        R: Borrow<T> + Into<Box<T>>,
+        B: Borrow<T> + Into<Box<T>>,
     {
         let borrowed = t.borrow();
         if let Some(interned) = self.get(borrowed) {
             return interned;
         }
 
-        let mut arena = self
-            .arena
-            .write()
-            .expect("interner lock should not be poisoned");
+        let mut arena = self.arena.write();
 
         // If someone interned the item between the above check and us acquiring
         // the write lock, this heap allocation isn't necessary. However, this
@@ -188,7 +194,6 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
         #[allow(unsafe_code)] // SAFETY: Interned ties the lifetime to the interner.
         self.arena
             .read()
-            .expect("interner lock should not be poisoned")
             .get_key_value(t)
             .map(|(t, _)| Interned(unsafe { t.as_ref() }))
     }
@@ -196,7 +201,7 @@ impl<T: Eq + Hash + ?Sized, S: BuildHasher> Interner<T, S> {
 
 #[allow(unsafe_code)]
 #[cfg(feature = "raw")]
-impl<T: ?Sized, S> Interner<T, S> {
+impl<T: ?Sized, S, R: RawRwLock> Interner<T, S, R> {
     /// Raw interning interface for any `T`.
     pub fn intern_raw<Q>(
         &self,
@@ -210,10 +215,7 @@ impl<T: ?Sized, S> Interner<T, S> {
             return interned;
         }
 
-        let mut arena = self
-            .arena
-            .write()
-            .expect("interner lock should not be poisoned");
+        let mut arena = self.arena.write();
 
         match arena.raw_entry_mut().from_hash(hash, |t| is_match(&it, t)) {
             RawEntryMut::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
@@ -234,13 +236,13 @@ impl<T: ?Sized, S> Interner<T, S> {
     ) -> Option<Interned<'_, T>> {
         self.arena
             .read()
-            .expect("interner lock should not be poisoned")
             .raw_entry()
             .from_hash(hash, |t| is_match(t))
             .map(|(t, _)| Interned(unsafe { t.as_ref() }))
     }
 }
 
+#[cfg(feature = "std")]
 impl<T: ?Sized> Interner<T> {
     /// Create an empty interner.
     ///
@@ -267,18 +269,7 @@ impl<T: ?Sized> Interner<T> {
 }
 
 /// Constructors to control the backing `HashSet`'s hash function
-impl<T: ?Sized, H: BuildHasher> Interner<T, H> {
-    #[cfg(not(feature = "hashbrown"))]
-    /// Create an empty interner which will use the given hasher to hash the values.
-    ///
-    /// The interner is also created with the default capacity.
-    pub fn with_hasher(hasher: H) -> Self {
-        Interner {
-            arena: RwLock::new(HashMap::with_hasher(hasher)),
-        }
-    }
-
-    #[cfg(feature = "hashbrown")]
+impl<T: ?Sized, H: BuildHasher, R: RawRwLock> Interner<T, H, R> {
     /// Create an empty interner which will use the given hasher to hash the values.
     ///
     /// The interner is also created with the default capacity.
