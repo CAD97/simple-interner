@@ -215,9 +215,7 @@ impl<T: ?Sized, S, R: RawRwLock> Interner<T, S, R> {
             return interned;
         }
 
-        let mut arena = self
-            .arena
-            .write();
+        let mut arena = self.arena.write();
 
         match arena.raw_entry_mut().from_hash(hash, |t| is_match(&it, t)) {
             RawEntryMut::Occupied(entry) => Interned(unsafe { entry.key().as_ref() }),
