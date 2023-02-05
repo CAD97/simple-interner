@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ops::Deref, ptr};
+use core::{borrow::Borrow, ops::Deref, ptr};
 
 /// An item interned by an `Interner`.
 ///

@@ -79,11 +79,36 @@ jobs:
       - name: Setup cache
         uses: Swatinem/rust-cache@v1
       
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+      
       - name: Setup miri
         run: cargo miri setup
 
-      - name: Run tests
-        run: cargo miri test
+      - name: Run the tests
+        run: cargo hack miri test --feature-powerset --optional-deps --keep-going
+
+  no-std:
+    name: Check the build under a no-std target
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Install stable toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: nvptx64-nvidia-cuda
+
+      - name: Setup cache
+        uses: Swatinem/rust-cache@v1
+
+      - name: Install cargo-hack
+        uses: taiki-e/install-action@cargo-hack
+
+      - name: Test feature powerset
+        run: cargo hack check --feature-powerset --exclude-features default,std --optional-deps --keep-going --target nvptx64-nvidia-cuda
 
   # msrv:
   #   name: Run tests (msrv)

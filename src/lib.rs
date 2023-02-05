@@ -29,8 +29,8 @@
 //! [^1]: The interner stores `&'static` references without copying the pointee
 //!     into the store, e.g. storing `Cow<'static, str>` instead of `Box<str>`.
 //!
-//! [^2]: At the moment, creating the `Interner` inside a `static`, using
-//!     `Interner::with_hasher`, requires the `hashbrown` feature to be enabled.
+//! [^2]: At the moment, creating the `Interner` inside a `static` requires
+//!     using `Interner::with_hasher`.
 //!
 //! [^3]: Uses reference counting to collect globally unused symbols.
 //!
@@ -44,9 +44,13 @@
 
 #![forbid(unconditional_recursion, future_incompatible)]
 #![warn(unsafe_code, bad_style, missing_docs, missing_debug_implementations)]
+#![cfg_attr(not(feature = "std"), no_std)]
 
-#[cfg(feature = "parking_lot")]
-mod parking_lot_shim;
+#[cfg(not(feature = "std"))]
+extern crate alloc;
+
+#[cfg(feature = "std")]
+mod std_lock_api;
 
 mod interner;
 pub use interner::Interner;
@@ -60,8 +64,19 @@ mod tests {
 
     #[test]
     fn str_usage() {
+        #[cfg(not(feature = "std"))]
+        use {
+            alloc::{boxed::Box, string::String},
+            hash32::{BuildHasherDefault, FnvHasher},
+            spin::rwlock::RwLock,
+        };
+
         // Create the interner
+        #[cfg(feature = "std")]
         let interner = Interner::new();
+        #[cfg(not(feature = "std"))]
+        let interner: Interner<str, BuildHasherDefault<FnvHasher>, RwLock<()>> =
+            Interner::default();
 
         // Intern some strings
         let a1 = interner.intern(Box::<str>::from("a"));
@@ -88,8 +103,19 @@ mod tests {
 
     #[test]
     fn slice_usage() {
+        #[cfg(not(feature = "std"))]
+        use {
+            alloc::{boxed::Box, vec::Vec},
+            hash32::{BuildHasherDefault, FnvHasher},
+            spin::rwlock::RwLock,
+        };
+
         // Create the interner
+        #[cfg(feature = "std")]
         let interner = Interner::new();
+        #[cfg(not(feature = "std"))]
+        let interner: Interner<[u8], BuildHasherDefault<FnvHasher>, RwLock<()>> =
+            Interner::default();
 
         // Intern some strings
         let a1 = interner.intern(Box::<[u8]>::from([0]));
@@ -119,12 +145,16 @@ mod tests {
         assert_eq!(d2.as_ptr(), d3.as_ptr());
     }
 
-    #[cfg(feature = "hashbrown")]
     #[test]
     fn static_interner() {
-        use hash32::{BuildHasherDefault, FnvHasher};
+        #[cfg(not(feature = "std"))]
+        use alloc::string::String;
+        use {
+            hash32::{BuildHasherDefault, FnvHasher},
+            spin::rwlock::RwLock,
+        };
 
-        static INTERNER: Interner<str, BuildHasherDefault<FnvHasher>> =
+        static INTERNER: Interner<str, BuildHasherDefault<FnvHasher>, RwLock<()>> =
             Interner::with_hasher(BuildHasherDefault::new());
 
         let non_static_str = String::from("a");
@@ -134,5 +164,35 @@ mod tests {
         let static_str: &'static str = Interned::get(&interned);
 
         assert_eq!(static_str, "a");
+    }
+
+    #[test]
+    fn send_syn_unpin() {
+        use {
+            hash32::{BuildHasherDefault, FnvHasher},
+            spin::rwlock::RwLock,
+        };
+
+        fn is_send<T: Send>(_t: &T) {}
+        fn is_sync<T: Sync>(_t: &T) {}
+        fn is_unpin<T: Unpin>(_t: &T) {}
+
+        // Create the default std interner
+        #[cfg(feature = "std")]
+        {
+            let std_interner: Interner<str> = Interner::new();
+
+            is_send(&std_interner);
+            is_sync(&std_interner);
+            is_unpin(&std_interner);
+        }
+
+        // Create the non-std interner
+        let interner: Interner<str, BuildHasherDefault<FnvHasher>, RwLock<()>> =
+            Interner::default();
+
+        is_send(&interner);
+        is_sync(&interner);
+        is_unpin(&interner);
     }
 }
