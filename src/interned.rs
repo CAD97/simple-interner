@@ -1,4 +1,4 @@
-use std::{borrow::Borrow, ops::Deref, ptr};
+use std::{borrow::Borrow, ops::Deref, ptr, hash::Hash};
 
 /// An item interned by an `Interner`.
 ///
@@ -9,7 +9,7 @@ use std::{borrow::Borrow, ops::Deref, ptr};
 /// In all other cases, this should act exactly as if it were a reference to the
 /// wrapped type. To get the wrapped reference with the full lifetime, see
 /// [`Interned::get`].
-#[derive(Debug, Ord, PartialOrd, Hash)]
+#[derive(Debug, Ord, PartialOrd)]
 pub struct Interned<'a, T: ?Sized>(pub(crate) &'a T);
 
 impl<'a, T: ?Sized> Interned<'a, T> {
@@ -56,5 +56,12 @@ where
 {
     fn as_ref(&self) -> &U {
         (**self).as_ref()
+    }
+}
+
+impl<T: ?Sized> Hash for Interned<'_, T> {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        let ptr: *const T = self.0; 
+        ptr.hash(state);
     }
 }
